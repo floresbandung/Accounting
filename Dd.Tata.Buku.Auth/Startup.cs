@@ -1,12 +1,13 @@
-using FluentMigrator.Runner;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Dd.Tata.Buku.Auth.Migrations;
 using Dd.Tata.Buku.Auth.Repositories;
+using IdentityServer4.EntityFramework.Options;
+using Microsoft.AspNetCore.Identity;
+using System;
 
 namespace Dd.Tata.Buku.Auth
 {
@@ -24,43 +25,52 @@ namespace Dd.Tata.Buku.Auth
         {
             services.AddControllers();
 
-            services.AddDbContext<AuthContext>(options =>
-                options.UseNpgsql(Configuration.GetConnectionString("IdentityServerConnection")));
+            services.AddDbContext<AuthContext>(Context);
 
-            services.AddFluentMigratorCore()
-                .ConfigureRunner(ConRun)
-                .AddLogging(l => l.AddFluentMigratorConsole());
-        }
+            services.AddIdentity<IdentityUser<Guid>, IdentityRole<Guid>>()
+                .AddEntityFrameworkStores<AuthContext>();
 
-        public void ConRun(IMigrationRunnerBuilder builder)
-        {
-            builder.AddPostgres()
-                .WithGlobalConnectionString(Configuration.GetConnectionString("IdentityServerConnection"))
-                .ScanIn(typeof(InitMigration).Assembly)
-                .For.Migrations();
+            services.AddIdentityServer()
+                .AddDeveloperSigningCredential()
+                .AddConfigurationStore(ConfigurationStore)
+                .AddOperationalStore(OperationalStore);
         }
 
         private void Context(DbContextOptionsBuilder builder)
         {
-            builder.UseNpgsql(Configuration.GetConnectionString("IdentityServerConnection"), Opt);
+            builder.UseNpgsql(Configuration.GetConnectionString("Default"), Options);
         }
 
-        private void Opt(Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure.NpgsqlDbContextOptionsBuilder options)
+        private void ConfigurationStore(ConfigurationStoreOptions options)
+        {
+            options.ConfigureDbContext = Context;
+        }
+
+        private void OperationalStore(OperationalStoreOptions options)
+        {
+            options.ConfigureDbContext = Context;
+        }
+
+        private void Options(Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure.NpgsqlDbContextOptionsBuilder options)
         {
             options.MigrationsAssembly(GetType().Assembly.GetName().Name);
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
-        public void Configure(IApplicationBuilder app, IWebHostEnvironment env, IMigrationRunner migration, AuthContext context)
+        public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
         {
             if (env.IsDevelopment())
             {
                 app.UseDeveloperExceptionPage();
             }
 
+            app.Initialize();
+
             app.UseHttpsRedirection();
 
             app.UseRouting();
+
+            app.UseIdentityServer();
 
             app.UseAuthorization();
 
@@ -68,8 +78,6 @@ namespace Dd.Tata.Buku.Auth
             {
                 endpoints.MapControllers();
             });
-
-            migration.MigrateUp();
         }
     }
 }
